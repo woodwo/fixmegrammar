@@ -1,5 +1,15 @@
 # FixMeGrammar - LLM-Augmented Clipboard for macOS
 
+Vibe coding for 5 mins
+
+```
+I want to create an LLM augmented clipboard for MacOS
+- if I copy english text - it should send it to LLM and prompt to make it grammatically correct.
+- if text was fixed - put new version back to clipboard.
+- if copied text is a code - just skip it. Use any C lib of functions to define natural language.
+- I do not need an UI, but status will be needed. Like fliker if LLM changed text in status icon.
+```
+
 FixMeGrammar is a utility that monitors your clipboard for English text and automatically fixes grammar using an LLM (GPT). When you copy text, it automatically checks if it's natural language (not code), sends it to GPT for grammar correction, and puts the corrected text back into your clipboard.
 
 ## Features
