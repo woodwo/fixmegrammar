@@ -28,20 +28,28 @@ final class AppController {
     private var settings: AppSettings
 
     init() {
+        print("[AppController] init entered")
         self.settings = AppSettings.load()
+        print("[AppController] settings loaded: enabled=\(self.settings.enabled), translate=\(self.settings.translateToEnglish), skipCode=\(self.settings.skipCode)")
+        fflush(stdout)
+        print("[AppController] init start")
+        print("[AppController] creating StatusBarController")
         self.statusBarController = StatusBarController(
             settings: settings,
             onToggleEnabled: { isEnabled in
                 AppSettings.shared.enabled = isEnabled
                 AppSettings.save()
+                print("[AppController] toggled enabled: \(isEnabled)")
             },
             onToggleTranslateToEnglish: { translate in
                 AppSettings.shared.translateToEnglish = translate
                 AppSettings.save()
+                print("[AppController] toggled translate: \(translate)")
             },
             onToggleSkipCode: { skip in
                 AppSettings.shared.skipCode = skip
                 AppSettings.save()
+                print("[AppController] toggled skipCode: \(skip)")
             },
             onFixClipboardNow: {
                 AppController.fixClipboardOnce()
@@ -50,11 +58,14 @@ final class AppController {
                 NSApplication.shared.terminate(nil)
             }
         )
+        print("[AppController] creating GPTClient")
         self.gptClient = GPTClient()
+        print("[AppController] creating LanguageDetector")
         self.languageDetector = LanguageDetector()
         Self.shared = self
-        // Start after setup
+        print("[AppController] starting clipboard monitor")
         self.clipboardMonitor.start()
+        print("[AppController] init finished")
     }
 
     private static func replaceClipboard(with text: String) {

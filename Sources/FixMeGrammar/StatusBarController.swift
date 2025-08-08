@@ -28,8 +28,10 @@ final class StatusBarController {
         self.onFixClipboardNow = onFixClipboardNow
         self.onQuit = onQuit
 
+        print("[StatusBarController] created status item")
         statusItem.button?.title = "📎"
         constructMenu(with: settings)
+        print("[StatusBarController] menu constructed")
     }
 
     private func constructMenu(with settings: AppSettings) {

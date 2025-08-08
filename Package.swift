@@ -14,7 +14,10 @@ let package = Package(
         .executableTarget(
             name: "FixMeGrammar",
             dependencies: [],
-            path: "Sources"
+            path: "Sources",
+            exclude: [
+                "FixMeGrammar/Info.plist"
+            ]
         ),
     ]
 ) 

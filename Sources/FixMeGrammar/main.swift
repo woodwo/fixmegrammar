@@ -1,6 +1,8 @@
 import Cocoa
 
+print("[main] Starting application")
 let app = NSApplication.shared
-NSApp.setActivationPolicy(.accessory)
-let controller = AppController()
+let delegate = AppDelegate()
+app.delegate = delegate
+print("[main] Running app runloop")
 app.run()

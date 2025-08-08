@@ -5,14 +5,30 @@ struct AppSettings: Codable {
     var translateToEnglish: Bool
     var skipCode: Bool
 
-    static var shared: AppSettings = AppSettings.load()
+    private static let suiteName = "com.yourcompany.FixMeGrammar"
+    private static let defaultsInstance: UserDefaults = {
+        if let ud = UserDefaults(suiteName: suiteName) {
+            return ud
+        }
+        return .standard
+    }()
+
+    static var shared: AppSettings = AppSettings(enabled: true, translateToEnglish: true, skipCode: true)
 
     static func load() -> AppSettings {
-        let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: "AppSettings"),
-           let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            shared = settings
-            return settings
+        print("[AppSettings] load start")
+        let defaults = defaultsInstance
+        if let data = defaults.data(forKey: "AppSettings") {
+            print("[AppSettings] found saved data: \(data.count) bytes")
+            if let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
+                print("[AppSettings] decoded settings")
+                shared = settings
+                return settings
+            } else {
+                print("[AppSettings] failed to decode settings, using defaults")
+            }
+        } else {
+            print("[AppSettings] no saved data, using defaults")
         }
         let initial = AppSettings(enabled: true, translateToEnglish: true, skipCode: true)
         shared = initial
@@ -20,7 +36,7 @@ struct AppSettings: Codable {
     }
 
     static func save() {
-        let defaults = UserDefaults.standard
+        let defaults = defaultsInstance
         if let data = try? JSONEncoder().encode(shared) {
             defaults.set(data, forKey: "AppSettings")
         }
