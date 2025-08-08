@@ -7,21 +7,11 @@ final class AppController {
         ClipboardMonitor(
             isEnabledProvider: { AppSettings.shared.enabled },
             shouldSkipCodeProvider: { AppSettings.shared.skipCode },
-            onProcessText: { [weak self] text in
+            onProcessText: { [weak self] text, sourceBundleId in
                 guard let self else { return }
                 Task {
                     do {
-                        let fixed = try await self.gptClient.fixGrammar(
-                            text: text,
-                            translateToEnglish: AppSettings.shared.translateToEnglish
-                        )
-                        if fixed != text {
-                            AppController.replaceClipboard(with: fixed)
-                            self.statusBarController.flash()
-                            print("Fixed text: \(fixed)")
-                        } else {
-                            print("No grammar issues found")
-                        }
+                        try await self.maybeProcessClipboardText(text: text, sourceBundleId: sourceBundleId, force: false)
                     } catch {
                         print("Error fixing grammar: \(error.localizedDescription)")
                     }
@@ -62,6 +52,7 @@ final class AppController {
         )
         self.gptClient = GPTClient()
         self.languageDetector = LanguageDetector()
+        Self.shared = self
         // Start after setup
         self.clipboardMonitor.start()
     }
@@ -78,13 +69,54 @@ final class AppController {
 
     private static func fixClipboardOnce() {
         guard let content = NSPasteboard.general.string(forType: .string) else { return }
-        // Trigger change by re-setting processed content via monitor pipeline
-        NSPasteboard.general.clearContents()
-        _ = NSPasteboard.general.setString(content + "\n", forType: .string)
-        // Add a tiny change to force monitor without altering content meaningfully
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            NSPasteboard.general.clearContents()
-            _ = NSPasteboard.general.setString(content, forType: .string)
+        Task {
+            await AppController.shared?.processNow(text: content)
+        }
+    }
+
+    // Allowlist and processing
+    private static let allowedBundleIds: Set<String> = [
+        // Slack
+        "com.tinyspeck.slackmacgap", // legacy
+        "com.tinyspeck.slackmacgap.helper",
+        "com.SlackTechnologies.Slack",
+        // Google Chrome
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        // Zoom
+        "us.zoom.xos",
+    ]
+
+    private static var shared: AppController?
+
+    @discardableResult
+    private func maybeProcessClipboardText(text: String, sourceBundleId: String?, force: Bool) async throws -> Bool {
+        let isAllowedSource = sourceBundleId.map { Self.allowedBundleIds.contains($0) } ?? false
+        guard force || isAllowedSource else {
+            print("Skipping auto-fix for source: \(sourceBundleId ?? "unknown")")
+            return false
+        }
+
+        let fixed = try await self.gptClient.fixGrammar(
+            text: text,
+            translateToEnglish: AppSettings.shared.translateToEnglish
+        )
+        if fixed != text {
+            AppController.replaceClipboard(with: fixed)
+            self.statusBarController.flash()
+            print("Fixed text: \(fixed)")
+            return true
+        } else {
+            print("No grammar issues found")
+            return false
+        }
+    }
+
+    private func processNow(text: String) async {
+        do {
+            _ = try await maybeProcessClipboardText(text: text, sourceBundleId: nil, force: true)
+        } catch {
+            print("Manual fix failed: \(error.localizedDescription)")
         }
     }
 }

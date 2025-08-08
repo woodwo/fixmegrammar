@@ -7,13 +7,13 @@ final class ClipboardMonitor {
 
     private let isEnabledProvider: () -> Bool
     private let shouldSkipCodeProvider: () -> Bool
-    private let onProcessText: (String) -> Void
+    private let onProcessText: (String, String?) -> Void
     private let isCodeDetector: (String) -> Bool
 
     init(
         isEnabledProvider: @escaping () -> Bool,
         shouldSkipCodeProvider: @escaping () -> Bool,
-        onProcessText: @escaping (String) -> Void,
+        onProcessText: @escaping (String, String?) -> Void,
         isCodeDetector: @escaping (String) -> Bool
     ) {
         self.isEnabledProvider = isEnabledProvider
@@ -40,11 +40,13 @@ final class ClipboardMonitor {
         guard content != previousContent else { return }
         previousContent = content
 
+        let sourceBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+
         if shouldSkipCodeProvider() && isCodeDetector(content) {
             print("Detected code, skipping grammar check")
             return
         }
 
-        onProcessText(content)
+        onProcessText(content, sourceBundleId)
     }
 }
