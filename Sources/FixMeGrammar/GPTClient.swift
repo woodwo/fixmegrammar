@@ -20,19 +20,28 @@ final class GPTClient {
     func fixGrammar(text: String, translateToEnglish: Bool) async throws -> String {
         guard !apiKey.isEmpty else { throw GPTClientError.apiKeyMissing }
 
+        // 1) Preprocess input: mask URLs and try to correct RU->EN keyboard slips for short words
+        let maskingResult = Self.maskURLs(in: text)
+        let maskedText = maskingResult.maskedText
+        let keyboardFixedText = Self.fixRussianKeyboardSlips(in: maskedText)
+
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let systemPrompt = "You are a helpful assistant that improves grammar and spelling. Only fix grammar and spelling issues in the text. If the text is already correct, return it unchanged." + (translateToEnglish ? " Also translate to English if the original is in Russian." : "")
+        let systemPrompt = (
+            "You are a helpful assistant that improves grammar and spelling. " +
+            "Only fix grammar and spelling issues in the text. If the text is already correct, return it unchanged. " +
+            "Do not alter placeholders of the form ⟦URL_#⟧; keep them exactly as-is."
+        ) + (translateToEnglish ? " Also translate to English if the original is in Russian." : "")
 
         let body: [String: Any] = [
             "model": "gpt-4o-mini",
             "messages": [
                 ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": text],
+                ["role": "user", "content": keyboardFixedText],
             ],
             "temperature": 0.2
         ]
@@ -59,6 +68,171 @@ final class GPTClient {
             throw GPTClientError.invalidResponse
         }
 
-        return content
+        // 2) Unmask URLs back into the model output
+        let restored = Self.unmaskURLs(in: content, using: maskingResult.placeholders)
+        return restored
+    }
+}
+
+// MARK: - Pre/Post processing helpers
+
+private extension GPTClient {
+    struct URLMaskingResult {
+        let maskedText: String
+        let placeholders: [String: String] // placeholder -> original URL
+    }
+
+    static func maskURLs(in text: String) -> URLMaskingResult {
+        // Use NSDataDetector to find links and replace them with opaque placeholders
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return URLMaskingResult(maskedText: text, placeholders: [:])
+        }
+
+        let nsText = text as NSString
+        let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+
+        if matches.isEmpty {
+            return URLMaskingResult(maskedText: text, placeholders: [:])
+        }
+
+        var placeholders: [String: String] = [:]
+        var pieces: [String] = []
+        var currentIndex = 0
+        var counter = 1
+
+        for match in matches {
+            let range = match.range
+            if range.location > currentIndex {
+                let prefix = nsText.substring(with: NSRange(location: currentIndex, length: range.location - currentIndex))
+                pieces.append(prefix)
+            }
+
+            let urlString = nsText.substring(with: range)
+            let placeholder = "⟦URL_\(counter)⟧"
+            counter += 1
+            placeholders[placeholder] = urlString
+            pieces.append(placeholder)
+            currentIndex = range.location + range.length
+        }
+
+        if currentIndex < nsText.length {
+            let tail = nsText.substring(from: currentIndex)
+            pieces.append(tail)
+        }
+
+        let masked = pieces.joined()
+        return URLMaskingResult(maskedText: masked, placeholders: placeholders)
+    }
+
+    static func unmaskURLs(in text: String, using placeholders: [String: String]) -> String {
+        var result = text
+        guard !placeholders.isEmpty else { return result }
+        // Replace each placeholder with its original value
+        for (placeholder, original) in placeholders {
+            result = result.replacingOccurrences(of: placeholder, with: original)
+        }
+        return result
+    }
+
+    static func fixRussianKeyboardSlips(in text: String) -> String {
+        // Heuristic: Convert short, Cyrillic-only words that look like English typed on RU layout
+        // Criteria per word: 2..24 cyrillic chars, no latin letters; mapped word must contain at least one English vowel
+        let pattern = try! NSRegularExpression(pattern: "[\\p{Cyrillic}]{2,24}")
+
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let matches = pattern.matches(in: text, options: [], range: fullRange)
+
+        if matches.isEmpty { return text }
+
+        var mutable = text
+        var offset = 0
+
+        for match in matches {
+            guard let range = Range(match.range, in: mutable) else { continue }
+            let token = String(mutable[range])
+
+            // Skip if token contains characters we don't map (safety check handled inside mapping)
+            let mapped = mapRussianTokenToEnglish(token)
+            if shouldReplaceRussianToken(original: token, mapped: mapped) {
+                let nsRange = NSRange(range, in: mutable)
+                let nsMutable = NSMutableString(string: mutable)
+                nsMutable.replaceCharacters(in: nsRange, with: mapped)
+                mutable = String(nsMutable)
+            }
+        }
+
+        return mutable
+    }
+
+    static func shouldReplaceRussianToken(original: String, mapped: String) -> Bool {
+        // Do not replace if mapping produced the same string
+        if original == mapped { return false }
+
+        // Reject if mapped contains any non-ascii letters (should be pure ascii letters/punct)
+        let asciiOnly = mapped.unicodeScalars.allSatisfy { $0.isASCII }
+        if !asciiOnly { return false }
+
+        // Must contain at least one english vowel
+        let vowels = Set(["a","e","i","o","u","A","E","I","O","U"])
+        if !mapped.contains(where: { vowels.contains(String($0)) }) { return false }
+
+        // Keep short to avoid mangling real Russian sentences
+        if mapped.count > 24 { return false }
+
+        return true
+    }
+
+    static func mapRussianTokenToEnglish(_ token: String) -> String {
+        // RU->EN keyboard layout map (macOS RU layout to US QWERTY)
+        let map: [Character: Character] = [
+            // Row 1
+            "ё": "`", "Ё": "~",
+            "й": "q", "Й": "Q",
+            "ц": "w", "Ц": "W",
+            "у": "e", "У": "E",
+            "к": "r", "К": "R",
+            "е": "t", "Е": "T",
+            "н": "y", "Н": "Y",
+            "г": "u", "Г": "U",
+            "ш": "i", "Ш": "I",
+            "щ": "o", "Щ": "O",
+            "з": "p", "З": "P",
+            "х": "[", "Х": "{",
+            "ъ": "]", "Ъ": "}",
+            // Row 2
+            "ф": "a", "Ф": "A",
+            "ы": "s", "Ы": "S",
+            "в": "d", "В": "D",
+            "а": "f", "А": "F",
+            "п": "g", "П": "G",
+            "р": "h", "Р": "H",
+            "о": "j", "О": "J",
+            "л": "k", "Л": "K",
+            "д": "l", "Д": "L",
+            "ж": ";", "Ж": ":",
+            "э": "'", "Э": "\"",
+            // Row 3
+            "я": "z", "Я": "Z",
+            "ч": "h", "Ч": "H",
+            "с": "c", "С": "C",
+            "м": "v", "М": "V",
+            "и": "b", "И": "B",
+            "т": "n", "Т": "N",
+            "ь": "m", "Ь": "M",
+            "б": ",", "Б": "<",
+            "ю": ".", "Ю": ">"
+        ]
+
+        var result = String()
+        result.reserveCapacity(token.count)
+        for ch in token {
+            if let mapped = map[ch] {
+                result.append(mapped)
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
     }
 }
