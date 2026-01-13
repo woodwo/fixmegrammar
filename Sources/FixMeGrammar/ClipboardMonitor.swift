@@ -4,6 +4,7 @@ import Cocoa
 final class ClipboardMonitor {
     private var previousContent: String = ""
     private var timer: Timer?
+    private var skipNextChange: Bool = false
 
     private let isEnabledProvider: () -> Bool
     private let shouldSkipCodeProvider: () -> Bool
@@ -35,9 +36,20 @@ final class ClipboardMonitor {
         timer = nil
     }
 
+    func ignoreNextChange() {
+        skipNextChange = true
+    }
+
     private func tick() {
         guard isEnabledProvider() else { return }
         guard let content = NSPasteboard.general.string(forType: .string) else { return }
+
+        if skipNextChange {
+            skipNextChange = false
+            previousContent = content
+            return
+        }
+
         guard content != previousContent else { return }
         previousContent = content
 

@@ -51,6 +51,16 @@ final class AppController {
                 AppSettings.save()
                 print("[AppController] toggled skipCode: \(skip)")
             },
+            onTogglePresentationMode: { presentationMode in
+                AppSettings.shared.presentationMode = presentationMode
+                AppSettings.save()
+                print("[AppController] toggled presentationMode: \(presentationMode)")
+            },
+            onToggleFilterApps: { filterApps in
+                AppSettings.shared.filterAppsEnabled = filterApps
+                AppSettings.save()
+                print("[AppController] toggled filterAppsEnabled: \(filterApps)")
+            },
             onFixClipboardNow: {
                 AppController.fixClipboardOnce()
             },
@@ -68,13 +78,17 @@ final class AppController {
         print("[AppController] init finished")
     }
 
-    private static func replaceClipboard(with text: String) {
+    private func replaceClipboard(with text: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         if !pasteboard.setString(text, forType: .string) {
             print("Failed to update clipboard with fixed text")
         } else {
             print("Successfully updated clipboard with fixed text")
+            self.clipboardMonitor.ignoreNextChange()
+            if let sound = NSSound(named: "Pop") {
+                sound.play()
+            }
         }
     }
 
@@ -96,24 +110,32 @@ final class AppController {
         "com.google.Chrome.canary",
         // Zoom
         "us.zoom.xos",
+        // VS Code
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCode.insiders",
+        // Cursor
+        "com.todesktop.240320152205d6f5",
     ]
 
     private static var shared: AppController?
 
     @discardableResult
     private func maybeProcessClipboardText(text: String, sourceBundleId: String?, force: Bool) async throws -> Bool {
-        let isAllowedSource = sourceBundleId.map { Self.allowedBundleIds.contains($0) } ?? false
-        guard force || isAllowedSource else {
-            print("Skipping auto-fix for source: \(sourceBundleId ?? "unknown")")
-            return false
+        if !force && AppSettings.shared.filterAppsEnabled {
+            let isAllowedSource = sourceBundleId.map { Self.allowedBundleIds.contains($0) } ?? false
+            guard isAllowedSource else {
+                print("Skipping auto-fix for source: \(sourceBundleId ?? "unknown")")
+                return false
+            }
         }
 
         let fixed = try await self.gptClient.fixGrammar(
             text: text,
-            translateToEnglish: AppSettings.shared.translateToEnglish
+            translateToEnglish: AppSettings.shared.translateToEnglish,
+            presentationMode: AppSettings.shared.presentationMode
         )
         if fixed != text {
-            AppController.replaceClipboard(with: fixed)
+            self.replaceClipboard(with: fixed)
             self.statusBarController.flash()
             print("Fixed text: \(fixed)")
             return true

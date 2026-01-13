@@ -17,13 +17,13 @@ final class GPTClient {
         }
     }
 
-    func fixGrammar(text: String, translateToEnglish: Bool) async throws -> String {
+    func fixGrammar(text: String, translateToEnglish: Bool, presentationMode: Bool = false) async throws -> String {
         guard !apiKey.isEmpty else { throw GPTClientError.apiKeyMissing }
 
-        // 1) Preprocess input: mask URLs and try to correct RU->EN keyboard slips for short words
+        // 1) Preprocess input: mask URLs (temporarily disable RU->EN keyboard slip fix)
         let maskingResult = Self.maskURLs(in: text)
         let maskedText = maskingResult.maskedText
-        let keyboardFixedText = Self.fixRussianKeyboardSlips(in: maskedText)
+        let keyboardFixedText = maskedText
 
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -31,11 +31,11 @@ final class GPTClient {
         request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let systemPrompt = (
-            "You are a helpful assistant that improves grammar and spelling. " +
-            "Only fix grammar and spelling issues in the text. If the text is already correct, return it unchanged. " +
-            "Do not alter placeholders of the form ⟦URL_#⟧; keep them exactly as-is."
-        ) + (translateToEnglish ? " Also translate to English if the original is in Russian." : "")
+        let basePrompt = presentationMode
+            ? "You are a presentation coach. Rephrase the text to be clear, concise, and engaging when spoken aloud during a presentation. Use active voice, simple sentence structure, and make it easy to pronounce. Only fix grammar, spelling, and improve clarity for spoken delivery. If the text is already good, return it unchanged. Do not alter placeholders of the form ⟦URL_#⟧; keep them exactly as-is. Return ONLY the text, with no explanations or meta-information."
+            : "You are a helpful assistant that improves grammar and spelling. Only fix grammar and spelling issues in the text. If the text is already correct, return it unchanged. Do not alter placeholders of the form ⟦URL_#⟧; keep them exactly as-is. Return ONLY the text, with no explanations or meta-information."
+
+        let systemPrompt = basePrompt + (translateToEnglish ? " Also translate to English if the original is in Russian." : "")
 
         let body: [String: Any] = [
             "model": "gpt-4o-mini",

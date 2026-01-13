@@ -4,6 +4,8 @@ struct AppSettings: Codable {
     var enabled: Bool
     var translateToEnglish: Bool
     var skipCode: Bool
+    var presentationMode: Bool
+    var filterAppsEnabled: Bool
 
     private static let suiteName = "com.yourcompany.FixMeGrammar"
     private static let defaultsInstance: UserDefaults = {
@@ -13,7 +15,7 @@ struct AppSettings: Codable {
         return .standard
     }()
 
-    static var shared: AppSettings = AppSettings(enabled: true, translateToEnglish: true, skipCode: true)
+    static var shared: AppSettings = AppSettings(enabled: true, translateToEnglish: true, skipCode: true, presentationMode: false, filterAppsEnabled: true)
 
     static func load() -> AppSettings {
         print("[AppSettings] load start")
@@ -30,7 +32,7 @@ struct AppSettings: Codable {
         } else {
             print("[AppSettings] no saved data, using defaults")
         }
-        let initial = AppSettings(enabled: true, translateToEnglish: true, skipCode: true)
+        let initial = AppSettings(enabled: true, translateToEnglish: true, skipCode: true, presentationMode: false, filterAppsEnabled: true)
         shared = initial
         return initial
     }
